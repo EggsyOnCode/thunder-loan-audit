@@ -9,7 +9,7 @@ contract DeployThunderLoan is Script {
     function run() public {
         vm.startBroadcast();
         ThunderLoan thunderLoan = new ThunderLoan();
-        new ERC1967Proxy(address(thunderLoan), "");
+        ERC1967Proxy proxy = new ERC1967Proxy(address(thunderLoan), "");
         vm.stopBroadcast();
     }
 }

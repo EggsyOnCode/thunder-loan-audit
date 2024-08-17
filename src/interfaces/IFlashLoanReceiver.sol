@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity 0.8.20;
 
+//@audit-info unused import?
 import { IThunderLoan } from "./IThunderLoan.sol";
+
+// fine ✅
 
 /**
  * @dev Inspired by Aave:
