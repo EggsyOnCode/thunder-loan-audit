@@ -99,4 +99,37 @@ contract ThunderLoanTest is BaseTest {
         assertNotEq(tokenA.balanceOf(address(asset)), DEPOSIT_AMOUNT - amountToRedeem);
         assertNotEq(tokenA.balanceOf(liquidityProvider), amountToRedeem);
     }
+
+    function testRedeemAfterLoan() public setAllowedToken hasDeposits {
+        uint256 amountToBorrow = AMOUNT * 10;
+        uint256 calculatedFee = thunderLoan.getCalculatedFee(tokenA, amountToBorrow);
+        vm.startPrank(user);
+        tokenA.mint(address(mockFlashLoanReceiver), AMOUNT);
+        thunderLoan.flashloan(address(mockFlashLoanReceiver), tokenA, amountToBorrow, "");
+        vm.stopPrank();
+
+        assertEq(mockFlashLoanReceiver.getBalanceDuring(), amountToBorrow + AMOUNT);
+        assertEq(mockFlashLoanReceiver.getBalanceAfter(), AMOUNT - calculatedFee);
+
+        AssetToken asset = thunderLoan.getAssetFromToken(tokenA);
+        assertEq(tokenA.balanceOf(address(asset)), DEPOSIT_AMOUNT);
+        uint256 amountToRedeem = AMOUNT * 10;
+        uint256 exchangeRate = asset.getExchangeRate();
+        uint256 amountToRedeemInUnderlying = amountToRedeem * exchangeRate / asset.EXCHANGE_RATE_PRECISION();
+        emit log_uint(tokenA.balanceOf(liquidityProvider));
+        vm.startPrank(liquidityProvider);
+        thunderLoan.redeem(tokenA, amountToRedeem);
+        vm.stopPrank();
+        emit log_uint(tokenA.balanceOf(liquidityProvider));
+        emit log_uint(amountToRedeemInUnderlying);
+
+
+        assertEq(tokenA.balanceOf(liquidityProvider), 100030000000000000000);
+
+        // 100030000000000000000 [1e20]
+        // 1000300000000000000000
+        // 1000000000000000000000
+        // 
+        // assertEq(tokenA.balanceOf(address(asset)), DEPOSIT_AMOUNT - amountToRedeemInUnderlying);
+    }
 }
