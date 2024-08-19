@@ -8,8 +8,8 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 contract OracleUpgradeable is Initializable {
     address private s_poolFactory;
 
-    //@audit-low failure to initialize could result in uninitialized poolFactoryAddress and 
-    //ownership transfer to a hacker 
+    //@audit-low failure to initialize could result in uninitialized poolFactoryAddress and
+    //ownership transfer to a hacker
     //@audit-low Oracle init could be front-run by a hacker
     function __Oracle_init(address poolFactoryAddress) internal onlyInitializing {
         __Oracle_init_unchained(poolFactoryAddress);
@@ -19,10 +19,10 @@ contract OracleUpgradeable is Initializable {
         s_poolFactory = poolFactoryAddress;
     }
 
-    //q attack vectors for breaking the oracle pricing func?
     //@audit-info should have forked tests for testing this functionality
     function getPriceInWeth(address token) public view returns (uint256) {
         address swapPoolOfToken = IPoolFactory(s_poolFactory).getPool(token);
+        //@followup what if the token has 6 decimals?
         return ITSwapPool(swapPoolOfToken).getPriceOfOnePoolTokenInWeth();
     }
 

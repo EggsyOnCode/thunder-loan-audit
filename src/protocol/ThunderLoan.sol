@@ -30,9 +30,13 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
     /*//////////////////////////////////////////////////////////////
                             STATE VARIABLES
     //////////////////////////////////////////////////////////////*/
+    //e an allowlist is maintained too; those tokens which are permitted to be borrowed and deposited
+    // say our protocol gets denied by the USDC foundation, then it should be removed
     mapping(IERC20 => AssetToken) public s_tokenToAssetToken;
 
     // The fee in WEI, it should have 18 decimals. Each flash loan takes a flat fee of the token price.
+
+    //@audit-info these vars are not updated, better to have them a Const or Immutable
     uint256 private s_feePrecision;
     uint256 private s_flashLoanFee; // 0.3% ETH fee
 
@@ -87,14 +91,22 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         s_flashLoanFee = 3e15; // 0.3% ETH fee
     }
 
+    // exchagne rate : 1 USDC/ 100 ETH
+    // token: usdc address, amount: 100
+    // usdcAtoken : (10 usdc -> 1 AToken)
+    // 100 * 1/10 = 10 Atokens
     function deposit(IERC20 token, uint256 amount) external revertIfZero(amount) revertIfNotAllowedToken(token) {
         AssetToken assetToken = s_tokenToAssetToken[token];
         uint256 exchangeRate = assetToken.getExchangeRate();
         uint256 mintAmount = (amount * assetToken.EXCHANGE_RATE_PRECISION()) / exchangeRate;
         emit Deposit(msg.sender, token, amount);
         assetToken.mint(msg.sender, mintAmount);
+
+        //@followup should the exchange rate be updated here?
+        //@audit-high updating exchage rate here changes the redeem amount for hte LP
         uint256 calculatedFee = getCalculatedFee(token, amount);
         assetToken.updateExchangeRate(calculatedFee);
+
         token.safeTransferFrom(msg.sender, address(assetToken), amount);
     }
 
@@ -120,7 +132,10 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         assetToken.transferUnderlyingTo(msg.sender, amountUnderlying);
     }
 
-    //q check for re-entrancy?
+    //qanswered check for re-entrancy: ✅
+    //e i wanna borrow 1000 usdc, so i give its addres and amoutn desired
+    //e  this amt gets transferred to the receiver address
+    //e the reciver address does some operation and then repays the loan + fee
     function flashloan(
         address receiverAddress,
         IERC20 token,
@@ -200,14 +215,19 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
         }
     }
 
+    // 100 USDC is 100 * 100 = 10000e18 / 1e18 = 10000
+    // 10000 * 3e15 / 1e18 = 30000 / 1000 = 30 USDC
     function getCalculatedFee(IERC20 token, uint256 amount) public view returns (uint256 fee) {
         //slither-disable-next-line divide-before-multiply
+        //@audit-high the fee calculation is being updated in WETH and not in token
+        // this value of borrowed token is in WETH units And not in USDC denominations
         uint256 valueOfBorrowedToken = (amount * getPriceInWeth(address(token))) / s_feePrecision;
         //slither-disable-next-line divide-before-multiply
         fee = (valueOfBorrowedToken * s_flashLoanFee) / s_feePrecision;
     }
 
     function updateFlashLoanFee(uint256 newFee) external onlyOwner {
+        //@followup couldn't the fee be reduced?
         if (newFee > s_feePrecision) {
             revert ThunderLoan__BadNewFee();
         }

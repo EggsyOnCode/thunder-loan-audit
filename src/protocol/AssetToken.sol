@@ -21,7 +21,6 @@ contract AssetToken is ERC20 {
     // The underlying per asset exchange rate
     // ie: s_exchangeRate = 2
     // means 1 asset token is worth 2 underlying tokens
-    //q what does this exchagne Rate really do??!!!
     uint256 private s_exchangeRate;
     uint256 public constant EXCHANGE_RATE_PRECISION = 1e18;
     uint256 private constant STARTING_EXCHANGE_RATE = 1e18;
@@ -76,12 +75,13 @@ contract AssetToken is ERC20 {
 
     function transferUnderlyingTo(address to, uint256 amount) external onlyThunderLoan {
         //e if the asset token is for USDC, this will transfer USDC to the user
-        //q weird ERC20s???
         //@followup what if USDC blacklists the assettoken contract?
         i_underlying.safeTransfer(to, amount);
     }
 
-    //q when is the exchange rate updated?
+    //qanswered when is the exchange rate updated? --> during flashloans
+    //e whenver a liq providers adds liquidity
+    //@audit-followup why doens't removing the liq update the exchage rate?
     function updateExchangeRate(uint256 fee) external onlyThunderLoan {
         // 1. Get the current exchange rate
         // 2. How big the fee is should be divided by the total supply
@@ -92,10 +92,9 @@ contract AssetToken is ERC20 {
         // newExchangeRate = oldExchangeRate * (totalSupply + fee) / totalSupply
         // newExchangeRate = 1 (4 + 0.5) / 4
         // newExchangeRate = 1.125
-        //@followup is the math correct and tested?; multipliers and precision not being used 
+        //@followup is the math correct and tested?; multipliers and precision not being used
         //@audit-gas too many storage reads; chaching could be used
         uint256 newExchangeRate = s_exchangeRate * (totalSupply() + fee) / totalSupply();
-
         if (newExchangeRate <= s_exchangeRate) {
             revert AssetToken__ExhangeRateCanOnlyIncrease(s_exchangeRate, newExchangeRate);
         }
