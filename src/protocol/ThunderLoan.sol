@@ -80,6 +80,7 @@ contract ThunderLoan is Initializable, OwnableUpgradeable, UUPSUpgradeable, Orac
     /*//////////////////////////////////////////////////////////////
                            EXTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+    //@audit-info tSwapAddress is incorrect, should be facotry address
     function initialize(address tswapAddress) external initializer {
         //@audit-low failure to initialize could result in uninitialized poolFactoryAddress and
         //ownership transfer to a hacker

